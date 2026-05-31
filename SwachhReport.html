@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SwachhReport — Report Street Garbage</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --bg: #0f1012;
+  --surface: #181a1e;
+  --surface2: #1f2228;
+  --border: #2a2d35;
+  --text: #e8eaf0;
+  --muted: #6b7080;
+  --green: #22c55e;
+  --green-dim: #16a34a22;
+  --amber: #f59e0b;
+  --amber-dim: #f59e0b22;
+  --red: #ef4444;
+  --red-dim: #ef444422;
+  --blue: #3b82f6;
+  --blue-dim: #3b82f622;
+  --accent: #22c55e;
+  --radius: 10px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Lato', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* NOISE OVERLAY */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* NAV */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(15,16,18,0.95);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-brand {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-brand .dot { color: var(--green); }
+.nav-tabs { display: flex; gap: 2px; }
+.nav-tab {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: 'Lato', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+.nav-tab:hover { color: var(--text); background: var(--surface2); }
+.nav-tab.active { color: var(--green); background: var(--green-dim); }
+
+/* PAGES */
+.page { display: none; max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; position: relative; z-index: 1; }
+.page.active { display: block; animation: fadeUp 0.3s ease; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* HERO */
+.hero { padding: 2.5rem 0 2rem; }
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--green);
+  border: 1px solid var(--green);
+  padding: 4px 12px;
+  border-radius: 99px;
+  margin-bottom: 1.25rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hero-tag::before { content: '●'; font-size: 8px; animation: blink 1.5s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.hero h1 {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(2.2rem, 6vw, 3.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  margin-bottom: 1rem;
+  letter-spacing: -1px;
+}
+.hero h1 em { color: var(--green); font-style: normal; }
+.hero p { color: var(--muted); font-size: 1rem; max-width: 520px; margin-bottom: 2rem; line-height: 1.7; }
+
+.stats-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+.stat-pill {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  min-width: 150px;
+}
+.stat-pill .n {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--green);
+  display: block;
+}
+.stat-pill .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.cta-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 11px 24px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-green { background: var(--green); color: #000; }
+.btn-green:hover { background: #16a34a; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(34,197,94,0.3); }
+.btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: var(--green); color: var(--green); }
+
+/* SECTION LABEL */
+.sec-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 1rem;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* CARD */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+/* FORM */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.fg { display: flex; flex-direction: column; gap: 6px; }
+.fg label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fg input, .fg select, .fg textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: 'Lato', sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+.fg input:focus, .fg select:focus, .fg textarea:focus { border-color: var(--green); }
+.fg select option { background: var(--surface2); }
+.fg textarea { resize: vertical; min-height: 80px; }
+
+/* PHOTO UPLOAD */
+.photo-drop {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.photo-drop:hover { border-color: var(--green); background: var(--green-dim); }
+.photo-drop input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.photo-drop .icon { font-size: 2rem; margin-bottom: 8px; }
+.photo-drop p { font-size: 13px; color: var(--muted); }
+.photo-drop strong { color: var(--green); }
+.photo-preview { display: none; margin-top: 1rem; }
+.photo-preview img { width: 100%; max-height: 200px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+
+/* SEVERITY */
+.severity-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.sev-btn {
+  flex: 1;
+  min-width: 100px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: 'Syne', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.sev-btn:hover { color: var(--text); }
+.sev-btn.low.active { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+.sev-btn.medium.active { border-color: var(--amber); background: var(--amber-dim); color: var(--amber); }
+.sev-btn.high.active { border-color: var(--red); background: var(--red-dim); color: var(--red); }
+
+/* SUCCESS TOAST */
+.toast {
+  display: none;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface2);
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+  padding: 14px 20px;
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 700;
+  z-index: 999;
+  animation: slideUp 0.3s ease;
+  max-width: 300px;
+}
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* COMPLAINT CARDS */
+.complaint-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  transition: border-color 0.2s;
+}
+.complaint-card:hover { border-color: var(--green); }
+.complaint-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background: var(--surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+.complaint-info { flex: 1; }
+.complaint-info h4 { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.complaint-info p { font-size: 12px; color: var(--muted); }
+.complaint-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+
+.badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 99px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.badge-pending { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+.badge-assigned { background: var(--blue-dim); color: var(--blue); border: 1px solid var(--blue); }
+.badge-resolved { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+.badge-low { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+.badge-medium { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber); }
+.badge-high { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+
+/* CORPORATION CARD */
+.corp-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.corp-info h4 { font-size: 14px; font-weight: 700; }
+.corp-info p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.corp-stats { display: flex; gap: 16px; text-align: center; flex-shrink: 0; }
+.corp-stat .n { font-family: 'IBM Plex Mono', monospace; font-size: 1.1rem; font-weight: 500; color: var(--green); }
+.corp-stat .l { font-size: 10px; color: var(--muted); }
+
+/* OFFICER DASHBOARD */
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 10px; margin-bottom: 1.5rem; }
+.dash-stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; text-align: center; }
+.dash-stat .n { font-family: 'IBM Plex Mono', monospace; font-size: 2rem; font-weight: 500; display: block; }
+.dash-stat .l { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* HEAT ROW */
+.heat-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.heat-bar-wrap { flex: 1; height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+.heat-bar { height: 100%; border-radius: 99px; }
+.heat-name { font-size: 13px; font-weight: 700; min-width: 120px; }
+.heat-num { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); min-width: 40px; text-align: right; }
+
+/* TRACKER */
+.track-step { display: flex; gap: 12px; padding: 12px 0; }
+.step-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px; }
+.step-dot.done { background: var(--green-dim); border: 2px solid var(--green); color: var(--green); }
+.step-dot.active { background: var(--amber-dim); border: 2px solid var(--amber); color: var(--amber); }
+.step-dot.todo { background: var(--surface2); border: 2px solid var(--border); color: var(--muted); }
+.step-info h4 { font-size: 13px; font-weight: 700; }
+.step-info p { font-size: 12px; color: var(--muted); }
+
+/* RESPONSIVE */
+@media (max-width: 580px) {
+  .nav-tab { padding: 5px 8px; font-size: 11px; }
+  .hero h1 { font-size: 2rem; }
+  .stats-row { gap: 8px; }
+  .page { padding: 1.25rem 1rem; }
+}
+
+footer { text-align: center; padding: 2rem; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 2rem; position: relative; z-index: 1; }
+
+/* LOCATION PICKER */
+.loc-btns { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.loc-btn {
+  flex: 1; min-width: 140px;
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: 8px; padding: 10px 14px;
+  color: var(--muted); font-family: 'Syne', sans-serif;
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; cursor: pointer; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.loc-btn:hover { border-color: var(--green); color: var(--green); }
+.loc-btn.active { border-color: var(--green); background: var(--green-dim); color: var(--green); }
+.loc-status {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--green); padding: 8px 12px;
+  background: var(--green-dim); border: 1px solid var(--green);
+  border-radius: 8px; display: none; margin-bottom: 10px;
+}
+.loc-status.error { color: var(--red); background: var(--red-dim); border-color: var(--red); }
+
+/* LEAFLET MAP */
+#report-map {
+  width: 100%; height: 280px; border-radius: 10px;
+  border: 1.5px solid var(--border); display: none;
+  margin-bottom: 10px; overflow: hidden;
+}
+#report-map.show { display: block; }
+
+/* NEARBY BANNER */
+.nearby-banner {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  margin-bottom: 1.25rem; display: flex;
+  align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.nearby-banner p { font-size: 13px; color: var(--muted); flex: 1; }
+.nearby-dist {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--muted); margin-top: 4px; display: none;
+}
+.nearby-dist.show { display: block; }
+.nearby-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  padding: 3px 10px; border-radius: 99px;
+  background: var(--green-dim); color: var(--green);
+  border: 1px solid var(--green); white-space: nowrap;
+}
+.exc-card-far { opacity: 0.35; pointer-events: none; }
+
+/* ── LOGIN PAGE ───────────────────────────────────── */
+#login-screen {
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+}
+#login-screen::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(34,197,94,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.login-box {
+  width: 100%; max-width: 420px;
+  position: relative; z-index: 1;
+}
+.login-logo {
+  text-align: center; margin-bottom: 2.5rem;
+}
+.login-logo .wordmark {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.7rem; font-weight: 800;
+  letter-spacing: -0.5px;
+}
+.login-logo .wordmark .dot { color: var(--green); }
+.login-logo .tagline {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  margin-top: 6px;
+}
+.role-cards {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 12px; margin-bottom: 1.5rem;
+}
+.role-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 12px; padding: 1.5rem 1rem;
+  text-align: center; cursor: pointer;
+  transition: all 0.2s; position: relative;
+  overflow: hidden;
+}
+.role-card::before {
+  content: ''; position: absolute; inset: 0;
+  opacity: 0; transition: opacity 0.2s;
+}
+.role-card.citizen::before { background: radial-gradient(circle at 50% 0%, rgba(34,197,94,0.12), transparent 70%); }
+.role-card.officer::before { background: radial-gradient(circle at 50% 0%, rgba(59,130,246,0.12), transparent 70%); }
+.role-card:hover { transform: translateY(-2px); }
+.role-card.citizen:hover { border-color: var(--green); }
+.role-card.officer:hover { border-color: var(--blue); }
+.role-card.selected.citizen { border-color: var(--green); background: #16a34a10; }
+.role-card.selected.officer { border-color: var(--blue); background: #3b82f610; }
+.role-card .role-icon {
+  font-size: 2.5rem; margin-bottom: 10px; display: block;
+}
+.role-card .role-title {
+  font-family: 'Syne', sans-serif; font-size: 1rem;
+  font-weight: 800; display: block; margin-bottom: 4px;
+}
+.role-card.citizen .role-title { color: var(--green); }
+.role-card.officer .role-title { color: var(--blue); }
+.role-card .role-desc {
+  font-size: 11px; color: var(--muted); line-height: 1.5;
+}
+.role-card .role-check {
+  position: absolute; top: 10px; right: 10px;
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; opacity: 0; transition: opacity 0.2s;
+}
+.role-card.citizen .role-check { background: var(--green-dim); color: var(--green); border: 1.5px solid var(--green); }
+.role-card.officer .role-check { background: var(--blue-dim); color: var(--blue); border: 1.5px solid var(--blue); }
+.role-card.selected .role-check { opacity: 1; }
+
+.login-fields { display: flex; flex-direction: column; gap: 10px; margin-bottom: 1.25rem; }
+.login-input {
+  background: var(--surface2); border: 1.5px solid var(--border);
+  border-radius: 8px; padding: 11px 14px;
+  color: var(--text); font-family: 'Lato', sans-serif;
+  font-size: 14px; outline: none; transition: border-color 0.2s; width: 100%;
+}
+.login-input:focus { border-color: var(--green); }
+.login-input::placeholder { color: var(--muted); }
+.login-input.officer-field { display: none; }
+.login-input.officer-field.show { display: block; }
+.login-input.officer-field:focus { border-color: var(--blue); }
+
+.btn-login {
+  width: 100%; padding: 13px;
+  font-family: 'Syne', sans-serif; font-weight: 800;
+  font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase;
+  border: none; border-radius: 8px; cursor: pointer;
+  transition: all 0.2s; opacity: 0.5; pointer-events: none;
+}
+.btn-login.ready { opacity: 1; pointer-events: all; }
+.btn-login.citizen-login { background: var(--green); color: #000; }
+.btn-login.citizen-login:hover { background: #16a34a; box-shadow: 0 6px 20px rgba(34,197,94,0.3); }
+.btn-login.officer-login { background: var(--blue); color: #fff; }
+.btn-login.officer-login:hover { background: #2563eb; box-shadow: 0 6px 20px rgba(59,130,246,0.3); }
+
+.login-footer {
+  text-align: center; margin-top: 1.25rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: var(--muted);
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+
+/* hide app until logged in */
+#app-shell { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN SCREEN ─────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div style="font-size:2.5rem;margin-bottom:10px">🗑️</div>
+      <div class="wordmark">Swachh<span class="dot">Report</span></div>
+      <div class="tagline">Civic Action Platform — India</div>
+    </div>
+
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">Choose your role</div>
+    <div class="role-cards">
+      <div class="role-card citizen" onclick="selectRole('citizen')">
+        <div class="role-check">✓</div>
+        <span class="role-icon">🧑‍💼</span>
+        <span class="role-title">Citizen</span>
+        <span class="role-desc">Report garbage dumps, track complaints & upvote nearby issues</span>
+      </div>
+      <div class="role-card officer" onclick="selectRole('officer')">
+        <div class="role-check">✓</div>
+        <span class="role-icon">👷</span>
+        <span class="role-title">Officer</span>
+        <span class="role-desc">Manage complaints, resolve issues & view hotspot dashboard</span>
+      </div>
+    </div>
+
+    <div class="login-fields">
+      <input class="login-input" id="login-name" type="text" placeholder="Full Name" oninput="checkLoginReady()">
+      <input class="login-input" id="login-phone" type="tel" placeholder="Mobile Number" oninput="checkLoginReady()">
+      <input class="login-input officer-field" id="login-badge" type="text" placeholder="Badge / Employee ID" oninput="checkLoginReady()">
+      <input class="login-input officer-field" id="login-dept" type="text" placeholder="Department / Corporation" oninput="checkLoginReady()">
+    </div>
+
+    <button class="btn-login citizen-login" id="login-btn" onclick="doLogin()">Continue</button>
+
+    <div class="login-footer">SwachhReport · Swecha Hackathon · Hyderabad</div>
+  </div>
+</div>
+
+<!-- ── APP SHELL (hidden until login) ────────────────────── -->
+<div id="app-shell">
+<nav>
+  <div class="nav-brand">🗑️ Swachh<span class="dot">Report</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="show('home')">Home</button>
+    <button class="nav-tab" onclick="show('report')">Report</button>
+    <button class="nav-tab" onclick="show('track')">Track</button>
+    <button class="nav-tab" onclick="show('existing')">Existing</button>
+    <button class="nav-tab" onclick="show('officer')">Officers</button>
+    <button class="nav-tab" onclick="show('corps')">Corporations</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <span id="nav-greeting" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--green);letter-spacing:0.04em;align-items:center;gap:6px"></span>
+    <button onclick="logOut()" style="display:none;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;color:var(--muted);font-size:11px;font-family:'IBM Plex Mono',monospace;cursor:pointer;letter-spacing:0.04em;text-transform:uppercase;transition:all 0.15s" id="logout-btn" onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Log out</button>
+  </div>
+</nav>
+
+<!-- HOME -->
+<div class="page active" id="page-home">
+  <div class="hero">
+    <div class="hero-tag">Civic Action Platform — India</div>
+    <h1>Streets shouldn't<br>smell like <em>nobody cares.</em></h1>
+    <p>Report illegal garbage dumps on your street with a photo and location. SwachhReport automatically routes it to the right municipal corporation — and tracks it till it's cleaned.</p>
+    <div class="stats-row">
+      <div class="stat-pill"><span class="n">4,800+</span><span class="l">Dumps reported this month</span></div>
+      <div class="stat-pill"><span class="n">72%</span><span class="l">Resolved within 48 hours</span></div>
+      <div class="stat-pill"><span class="n">38</span><span class="l">Corporations connected</span></div>
+      <div class="stat-pill"><span class="n" style="color:var(--amber)">1,344</span><span class="l">Pending complaints</span></div>
+    </div>
+    <div class="cta-row">
+      <button class="btn btn-green" onclick="show('report')">📸 Report a Dump</button>
+      <button class="btn btn-ghost" onclick="show('track')">🔍 Track My Complaint</button>
+      <button class="btn btn-ghost" onclick="show('officer')">👷 Officer View</button>
+    </div>
+  </div>
+
+  <div class="sec-label" style="margin-top:1rem">How it works</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:2rem">
+    <div class="card" style="margin:0">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:2rem;color:var(--green);margin-bottom:8px">01</div>
+      <strong style="font-size:14px">Snap & Report</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">Take a photo of the garbage dump. Add your location — pin, address, or auto-detect.</p>
+    </div>
+    <div class="card" style="margin:0">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:2rem;color:var(--green);margin-bottom:8px">02</div>
+      <strong style="font-size:14px">Auto-Routed</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">Your complaint is instantly sent to the municipal corporation responsible for that area.</p>
+    </div>
+    <div class="card" style="margin:0">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:2rem;color:var(--green);margin-bottom:8px">03</div>
+      <strong style="font-size:14px">Officer Assigned</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">The corporation assigns a sanitation officer to verify and schedule cleanup.</p>
+    </div>
+    <div class="card" style="margin:0">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:2rem;color:var(--green);margin-bottom:8px">04</div>
+      <strong style="font-size:14px">Resolved & Closed</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px">You get notified when the dump is cleaned. Resolved with a before/after photo.</p>
+    </div>
+  </div>
+
+  <div class="sec-label">Recent reports near Hyderabad</div>
+  <div id="home-feed"></div>
+</div>
+
+<!-- REPORT PAGE -->
+<div class="page" id="page-report">
+  <div class="sec-label">Report a Street Garbage Dump</div>
+  <div class="card">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1.25rem">Fill the form below. Your report will be automatically routed to the right municipal corporation based on your location.</p>
+
+    <!-- PHOTO UPLOAD -->
+    <div style="margin-bottom:1.25rem">
+      <div class="fg" style="margin-bottom:8px"><label>Photo of garbage dump *</label></div>
+      <div class="photo-drop" id="photo-drop" onclick="document.getElementById('photo-input').click()">
+        <input type="file" id="photo-input" accept="image/*" onchange="previewPhoto(event)">
+        <div class="icon">📷</div>
+        <p><strong>Click to upload photo</strong> or drag and drop</p>
+        <p style="font-size:11px;margin-top:4px">JPG, PNG up to 10MB</p>
+      </div>
+      <div class="photo-preview" id="photo-preview">
+        <img id="preview-img" src="" alt="Preview">
+        <p style="font-size:12px;color:var(--green);margin-top:6px">✅ Photo uploaded</p>
+      </div>
+    </div>
+
+    <!-- SEVERITY -->
+    <div style="margin-bottom:1.25rem">
+      <div class="fg" style="margin-bottom:8px"><label>Severity Level *</label></div>
+      <div class="severity-row">
+        <button class="sev-btn low" onclick="setSev(this,'low')">🟢 Low<br><span style="font-size:10px;font-weight:400;text-transform:none">Small pile</span></button>
+        <button class="sev-btn medium" onclick="setSev(this,'medium')">🟡 Medium<br><span style="font-size:10px;font-weight:400;text-transform:none">Large heap</span></button>
+        <button class="sev-btn high active" onclick="setSev(this,'high')">🔴 High<br><span style="font-size:10px;font-weight:400;text-transform:none">Overflowing / health risk</span></button>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="fg">
+        <label>Your Name</label>
+        <input type="text" id="r-name" placeholder="e.g. Priya Reddy">
+      </div>
+      <div class="fg">
+        <label>Mobile Number</label>
+        <input type="tel" id="r-phone" placeholder="10-digit number">
+      </div>
+      <div class="fg">
+        <label>State</label>
+        <select id="r-state" onchange="updateCorp()">
+          <option value="">Select state</option>
+          <option value="TG">Telangana</option>
+          <option value="AP">Andhra Pradesh</option>
+          <option value="KA">Karnataka</option>
+          <option value="MH">Maharashtra</option>
+          <option value="TN">Tamil Nadu</option>
+          <option value="DL">Delhi</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>City / District</label>
+        <select id="r-city" onchange="updateCorp()">
+          <option value="">Select city</option>
+        </select>
+      </div>
+      <div class="fg" style="grid-column:1/-1">
+        <label>📍 Location *</label>
+        <div class="loc-btns">
+          <button type="button" class="loc-btn" id="btn-gps" onclick="useGPS()">📡 Use Current Location</button>
+          <button type="button" class="loc-btn" id="btn-map" onclick="toggleMap()">🗺️ Pick on Map</button>
+          <button type="button" class="loc-btn" id="btn-manual" onclick="useManual()">✏️ Enter Manually</button>
+        </div>
+        <div class="loc-status" id="loc-status"></div>
+        <div id="report-map"></div>
+        <input type="text" id="r-address" placeholder="e.g. Near SBI ATM, Dilsukhnagar Main Road">
+        <input type="hidden" id="r-lat" value="">
+        <input type="hidden" id="r-lng" value="">
+      </div>
+      <div class="fg">
+        <label>Area / Ward</label>
+        <input type="text" id="r-ward" placeholder="e.g. Ward 84, Malakpet">
+      </div>
+      <div class="fg">
+        <label>Dump Type</label>
+        <select id="r-type">
+          <option>Household waste pile</option>
+          <option>Construction debris</option>
+          <option>Plastic & packaging waste</option>
+          <option>Food waste / organic</option>
+          <option>Mixed / unknown</option>
+          <option>Industrial / hazardous</option>
+        </select>
+      </div>
+      <div class="fg" style="grid-column:1/-1">
+        <label>Additional Description</label>
+        <textarea id="r-desc" placeholder="e.g. This dump has been here for 3 days. It is blocking the footpath and smells very bad. Dogs are digging through it."></textarea>
+      </div>
+    </div>
+
+    <!-- ROUTED TO -->
+    <div id="routing-info" style="display:none;margin-bottom:1.25rem;background:var(--green-dim);border:1px solid var(--green);border-radius:8px;padding:12px 16px;font-size:13px">
+      <strong style="color:var(--green)">📍 Auto-routed to:</strong> <span id="corp-name" style="color:var(--text)"></span>
+      <span style="color:var(--muted);font-size:12px;display:block;margin-top:2px">Response time SLA: 48 hours</span>
+    </div>
+
+    <button class="btn btn-green" onclick="submitReport()">📸 Submit Report</button>
+  </div>
+</div>
+
+<!-- TRACK PAGE -->
+<div class="page" id="page-track">
+  <div class="sec-label">Track Your Complaint</div>
+  <div class="card">
+    <div class="form-grid" style="margin-bottom:1rem">
+      <div class="fg">
+        <label>Complaint ID</label>
+        <input type="text" id="track-id" placeholder="e.g. SR-2025-00847">
+      </div>
+      <div class="fg">
+        <label>Registered Mobile</label>
+        <input type="tel" id="track-phone" placeholder="10-digit number">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-green" onclick="trackComplaint()">🔍 Track Status</button>
+      <button class="btn btn-ghost" onclick="loadDemoTrack()">Demo: SR-2025-00847</button>
+    </div>
+    <div id="track-result" style="margin-top:1.5rem;display:none"></div>
+  </div>
+
+  <div class="sec-label" style="margin-top:1.5rem">All Recent Complaints</div>
+  <div id="all-complaints"></div>
+</div>
+
+<!-- OFFICER PAGE -->
+<div class="page" id="page-officer">
+  <div class="sec-label">Sanitation Officer Dashboard</div>
+  <div class="dash-grid">
+    <div class="dash-stat"><span class="n" style="color:var(--amber)">18</span><span class="l">Pending</span></div>
+    <div class="dash-stat"><span class="n" style="color:var(--blue)">7</span><span class="l">Assigned</span></div>
+    <div class="dash-stat"><span class="n" style="color:var(--green)">41</span><span class="l">Resolved (this month)</span></div>
+    <div class="dash-stat"><span class="n" style="color:var(--red)">3</span><span class="l">Overdue (&gt;48h)</span></div>
+  </div>
+
+  <div class="sec-label">Assigned to You — Priority Queue</div>
+  <div id="officer-queue"></div>
+
+  <div class="sec-label" style="margin-top:1.5rem">Hotspot Areas — Report Density</div>
+  <div class="card">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:1rem">Areas with the most unresolved complaints this week.</p>
+    <div id="hotspot-bars"></div>
+  </div>
+</div>
+
+<!-- EXISTING COMPLAINTS PAGE -->
+<div class="page" id="page-existing">
+  <div class="sec-label">Existing Complaints — Live Registry</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:1.25rem">All reported garbage dumps with full details. If you've seen the same dump, hit <strong style="color:var(--green)">＋ I've seen this too</strong> to increase the community count — higher counts get priority attention.</p>
+
+  <!-- NEARBY BANNER -->
+  <div class="nearby-banner">
+    <div style="flex:1">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px">📍 Show Nearby Reports</div>
+      <p>Let us detect your location and highlight dumps within your area first.</p>
+      <div class="nearby-dist" id="nearby-dist"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+      <button class="btn btn-green" id="btn-nearby" onclick="loadNearby()" style="padding:9px 18px;font-size:12px">📡 Detect My Location</button>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:12px;color:var(--muted)">Radius:</span>
+        <select id="nearby-radius" onchange="applyNearbyFilter()" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:12px;font-family:'Lato',sans-serif">
+          <option value="2">2 km</option>
+          <option value="5" selected>5 km</option>
+          <option value="10">10 km</option>
+          <option value="0">All</option>
+        </select>
+      </div>
+      <div id="nearby-count-badge" style="display:none"><span class="nearby-badge" id="nearby-count-text"></span></div>
+    </div>
+  </div>
+
+  <div id="existing-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem"></div>
+</div>
+
+<!-- CORPORATIONS PAGE -->
+<div class="page" id="page-corps">
+  <div class="sec-label">Connected Municipal Corporations</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:1.25rem">Complaints are auto-routed to the responsible corporation based on the reported location.</p>
+  <div id="corps-list"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<footer>SwachhReport — Civic Action Platform &nbsp;|&nbsp; Built for Swecha Hackathon &nbsp;|&nbsp; Hyderabad, India</footer>
+
+<script>
+// ── LOGIN ─────────────────────────────────────────────────────
+let currentRole = null;
+
+function selectRole(role) {
+  currentRole = role;
+  document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`.role-card.${role}`).classList.add('selected');
+
+  // show/hide officer-only fields
+  document.querySelectorAll('.officer-field').forEach(f => f.classList.toggle('show', role === 'officer'));
+
+  // swap button style
+  const btn = document.getElementById('login-btn');
+  btn.className = 'btn-login ' + (role === 'citizen' ? 'citizen-login' : 'officer-login');
+  checkLoginReady();
+}
+
+function checkLoginReady() {
+  if (!currentRole) return;
+  const name = document.getElementById('login-name').value.trim();
+  const phone = document.getElementById('login-phone').value.trim();
+  const badge = document.getElementById('login-badge').value.trim();
+  const dept  = document.getElementById('login-dept').value.trim();
+  const ready = name && phone && (currentRole === 'citizen' || (badge && dept));
+  document.getElementById('login-btn').classList.toggle('ready', ready);
+}
+
+function doLogin() {
+  const name  = document.getElementById('login-name').value.trim();
+  const phone = document.getElementById('login-phone').value.trim();
+  if (!currentRole || !name || !phone) return;
+
+  // Fade out login screen
+  const ls = document.getElementById('login-screen');
+  ls.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+  ls.style.opacity = '0'; ls.style.transform = 'scale(0.97)';
+  setTimeout(() => { ls.style.display = 'none'; }, 400);
+
+  // Show app
+  const app = document.getElementById('app-shell');
+  app.style.display = 'block';
+  app.style.opacity = '0';
+  setTimeout(() => {
+    app.style.transition = 'opacity 0.4s ease';
+    app.style.opacity = '1';
+  }, 420);
+
+  // Update nav greeting
+  const greetEl = document.getElementById('nav-greeting');
+  if (greetEl) {
+    greetEl.textContent = (currentRole === 'officer' ? '👷 ' : '👤 ') + name;
+    greetEl.style.display = 'flex';
+  }
+
+  // Show/hide tabs based on role
+  const tabs = document.querySelectorAll('.nav-tab');
+  const citizenTabs = ['Home', 'Report', 'Track', 'Existing', 'Corporations'];
+  const officerTabs = ['Officers'];
+  if (currentRole === 'citizen') {
+    tabs.forEach(t => {
+      t.style.display = citizenTabs.includes(t.textContent.trim()) ? '' : 'none';
+    });
+    show('home');
+  } else {
+    tabs.forEach(t => {
+      t.style.display = officerTabs.includes(t.textContent.trim()) ? '' : 'none';
+    });
+    show('officer');
+  }
+
+  showToast(`👋 Welcome, ${name}! Logged in as ${currentRole === 'officer' ? 'Sanitation Officer' : 'Citizen'}.`);
+
+  // Show logout button
+  document.getElementById('logout-btn').style.display = 'block';
+}
+
+function logOut() {
+  currentRole = null;
+  const app = document.getElementById('app-shell');
+  app.style.transition = 'opacity 0.3s ease';
+  app.style.opacity = '0';
+  setTimeout(() => {
+    app.style.display = 'none'; app.style.opacity = '1';
+    // Reset login form
+    ['login-name','login-phone','login-badge','login-dept'].forEach(id => document.getElementById(id).value = '');
+    document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
+    document.querySelectorAll('.officer-field').forEach(f => f.classList.remove('show'));
+    document.getElementById('login-btn').className = 'btn-login citizen-login';
+    document.getElementById('nav-greeting').style.display = 'none';
+    document.getElementById('logout-btn').style.display = 'none';
+    // Restore hidden tabs
+    document.querySelectorAll('.nav-tab').forEach(t => t.style.display = '');
+    const ls = document.getElementById('login-screen');
+    ls.style.display = 'flex'; ls.style.opacity = '0'; ls.style.transform = 'scale(0.97)';
+    setTimeout(() => { ls.style.transition = 'opacity 0.4s ease, transform 0.4s ease'; ls.style.opacity = '1'; ls.style.transform = 'scale(1)'; }, 20);
+  }, 300);
+}
+
+// ── DATA ──────────────────────────────────────────────────────
+const cityMap = {
+  TG: ['Hyderabad','Warangal','Karimnagar','Nizamabad','Khammam'],
+  AP: ['Vijayawada','Visakhapatnam','Tirupati','Guntur','Nellore'],
+  KA: ['Bengaluru','Mysuru','Mangaluru','Hubballi'],
+  MH: ['Mumbai','Pune','Nagpur','Nashik'],
+  TN: ['Chennai','Coimbatore','Madurai','Salem'],
+  DL: ['New Delhi','North Delhi','South Delhi','East Delhi'],
+};
+const corpMap = {
+  'Hyderabad':'GHMC (Greater Hyderabad Municipal Corporation)',
+  'Warangal':'Warangal Municipal Corporation',
+  'Karimnagar':'Karimnagar Municipal Corporation',
+  'Nizamabad':'Nizamabad Municipal Corporation',
+  'Khammam':'Khammam Municipal Corporation',
+  'Vijayawada':'Vijayawada Municipal Corporation',
+  'Visakhapatnam':'GVMC (Greater Visakhapatnam)',
+  'Bengaluru':'BBMP (Bruhat Bengaluru Mahanagara Palike)',
+  'Mumbai':'BMC (Brihanmumbai Municipal Corporation)',
+  'Chennai':'GCC (Greater Chennai Corporation)',
+  'New Delhi':'NDMC (New Delhi Municipal Council)',
+};
+
+const complaints = [
+  { id:'SR-2025-00847', area:'Dilsukhnagar', city:'Hyderabad', address:'Near SBI ATM, Main Road', type:'Household waste pile', sev:'high', status:'assigned', corp:'GHMC', time:'2 hours ago', steps:['submitted','verified','assigned','resolved'], count:14 },
+  { id:'SR-2025-00831', area:'Malakpet', city:'Hyderabad', address:'Behind bus stop, Malakpet', type:'Plastic & packaging', sev:'medium', status:'pending', corp:'GHMC', time:'5 hours ago', steps:['submitted','verified'], count:7 },
+  { id:'SR-2025-00819', area:'LB Nagar', city:'Hyderabad', address:'LB Nagar Junction footpath', type:'Mixed waste', sev:'high', status:'resolved', corp:'GHMC', time:'Yesterday', steps:['submitted','verified','assigned','resolved'], count:22 },
+  { id:'SR-2025-00804', area:'Kukatpally', city:'Hyderabad', address:'Near KPHB Colony gate', type:'Construction debris', sev:'medium', status:'pending', corp:'GHMC', time:'Yesterday', steps:['submitted'], count:4 },
+  { id:'SR-2025-00788', area:'Uppal', city:'Hyderabad', address:'Uppal Ring Road, near flyover', type:'Food waste', sev:'low', status:'resolved', corp:'GHMC', time:'2 days ago', steps:['submitted','verified','assigned','resolved'], count:3 },
+];
+
+const corps = [
+  { name:'GHMC', full:'Greater Hyderabad Municipal Corporation', city:'Hyderabad, TG', open:18, resolved:312, sla:'48h' },
+  { name:'GVMC', full:'Greater Visakhapatnam MC', city:'Visakhapatnam, AP', open:9, resolved:147, sla:'48h' },
+  { name:'VMC', full:'Vijayawada Municipal Corporation', city:'Vijayawada, AP', open:14, resolved:98, sla:'72h' },
+  { name:'BBMP', full:'Bruhat Bengaluru Mahanagara Palike', city:'Bengaluru, KA', open:31, resolved:521, sla:'24h' },
+  { name:'BMC', full:'Brihanmumbai Municipal Corporation', city:'Mumbai, MH', open:22, resolved:489, sla:'24h' },
+  { name:'GCC', full:'Greater Chennai Corporation', city:'Chennai, TN', open:11, resolved:203, sla:'48h' },
+];
+
+const hotspots = [
+  { area:'Dilsukhnagar', count:24, color:'#ef4444' },
+  { area:'Malakpet', count:19, color:'#ef4444' },
+  { area:'LB Nagar', count:15, color:'#f59e0b' },
+  { area:'Kukatpally', count:12, color:'#f59e0b' },
+  { area:'Uppal', count:8, color:'#22c55e' },
+  { area:'Secunderabad', count:6, color:'#22c55e' },
+];
+
+let selectedSev = 'high';
+
+// Phone → complaint ID index (simulates backend lookup)
+const phoneIndex = {
+  '9876543210': ['SR-2025-00847', 'SR-2025-00831', 'SR-2025-00819', 'SR-2025-00804', 'SR-2025-00788'],
+  '9000011122': ['SR-2025-00847'],
+};
+
+// ── NAV ───────────────────────────────────────────────────────
+function show(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  const map = ['home','report','track','existing','officer','corps'];
+  document.querySelectorAll('.nav-tab')[map.indexOf(id)]?.classList.add('active');
+  window.scrollTo(0, 0);
+  if (id === 'existing') renderExisting();
+  if (id === 'officer')  { renderOfficerQueue(); updateDashStats(); }
+}
+
+// ── CITY DROPDOWN ─────────────────────────────────────────────
+function updateCorp() {
+  const state = document.getElementById('r-state').value;
+  const cityEl = document.getElementById('r-city');
+  cityEl.innerHTML = '<option value="">Select city</option>';
+  (cityMap[state] || []).forEach(c => {
+    const o = document.createElement('option');
+    o.value = c; o.textContent = c;
+    cityEl.appendChild(o);
+  });
+  document.getElementById('routing-info').style.display = 'none';
+  cityEl.onchange = () => {
+    const city = cityEl.value;
+    const corp = corpMap[city];
+    if (corp) {
+      document.getElementById('corp-name').textContent = corp;
+      document.getElementById('routing-info').style.display = 'block';
+    }
+  };
+}
+
+// ── PHOTO PREVIEW ─────────────────────────────────────────────
+function previewPhoto(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    document.getElementById('preview-img').src = ev.target.result;
+    document.getElementById('photo-preview').style.display = 'block';
+    document.getElementById('photo-drop').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── SEVERITY ──────────────────────────────────────────────────
+function setSev(btn, sev) {
+  document.querySelectorAll('.sev-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedSev = sev;
+}
+
+// ── SUBMIT REPORT ─────────────────────────────────────────────
+function submitReport() {
+  const addr  = document.getElementById('r-address').value.trim();
+  const city  = document.getElementById('r-city').value;
+  const phone = document.getElementById('r-phone').value.trim();
+  const name  = document.getElementById('r-name').value.trim();
+  if (!addr || !city)  { showToast('⚠️ Please fill location and address'); return; }
+  if (!phone)          { showToast('⚠️ Please enter your mobile number'); return; }
+
+  const corp   = corpMap[city] || 'Local Municipal Corporation';
+  const area   = document.getElementById('r-ward').value.trim() || city;
+  const type   = document.getElementById('r-type').value;
+  const desc   = document.getElementById('r-desc')?.value.trim() || '';
+  const now    = new Date();
+  const timeStr = now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ', ' + now.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+
+  // ── Duplicate detection: same area + address + type = bump existing ──
+  const normAddr = addr.toLowerCase().replace(/\s+/g,' ').trim();
+  const dup = complaints.find(c =>
+    c.status !== 'resolved' &&
+    c.area.toLowerCase() === area.toLowerCase() &&
+    c.city.toLowerCase() === city.toLowerCase() &&
+    c.type === type
+  );
+
+  if (dup) {
+    // Bump count on existing complaint
+    dup.count++;
+    dup.reporters = dup.reporters || [];
+    dup.reporters.push({ name, phone, time: timeStr });
+
+    // Register this phone → complaint ID mapping for tracking
+    phoneIndex[phone] = phoneIndex[phone] || [];
+    if (!phoneIndex[phone].includes(dup.id)) phoneIndex[phone].push(dup.id);
+
+    // Show success modal for duplicate
+    showSubmitSuccess(dup.id, phone, true, dup.count);
+    renderExisting(); renderFeed(); renderAllComplaints(); renderOfficerQueue();
+    return;
+  }
+
+  // ── New complaint ──
+  const seq  = String(complaints.length + 848).padStart(5,'0');
+  const newId = 'SR-2025-' + seq;
+
+  const newC = {
+    id: newId,
+    area, city, address: addr, type, sev: selectedSev,
+    status: 'pending',
+    corp: corp.split('(')[0].trim(),
+    time: timeStr,
+    steps: ['submitted'],
+    count: 1,
+    phone,                          // primary reporter phone
+    reporters: [{ name, phone, time: timeStr }],
+    desc,
+    lat: parseFloat(document.getElementById('r-lat').value) || null,
+    lng: parseFloat(document.getElementById('r-lng').value) || null,
+  };
+
+  complaints.unshift(newC);
+
+  // Register phone → id mapping
+  phoneIndex[phone] = phoneIndex[phone] || [];
+  phoneIndex[phone].push(newId);
+
+  showSubmitSuccess(newId, phone, false, 1);
+  renderExisting(); renderFeed(); renderAllComplaints(); renderOfficerQueue();
+}
+
+// ── SUCCESS MODAL ─────────────────────────────────────────────
+function showSubmitSuccess(id, phone, isDup, count) {
+  // Build or reuse modal
+  let modal = document.getElementById('submit-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'submit-modal';
+    modal.style.cssText = `
+      position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.7);
+      display:flex;align-items:center;justify-content:center;padding:1.5rem;
+      backdrop-filter:blur(4px);animation:fadeUp 0.3s ease`;
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--green);border-radius:14px;
+      padding:2rem;max-width:400px;width:100%;text-align:center;position:relative">
+      <div style="font-size:3rem;margin-bottom:1rem">${isDup ? '👍' : '✅'}</div>
+      <div style="font-family:'Syne',sans-serif;font-size:1.2rem;font-weight:800;margin-bottom:6px">
+        ${isDup ? 'Report Counted!' : 'Complaint Filed!'}
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:1.5rem;line-height:1.6">
+        ${isDup
+          ? `This dump already has <strong style="color:var(--amber)">${count} reports</strong>. Your report has been added — higher counts push this to the top of the officer queue.`
+          : `Your complaint has been registered and routed to the responsible corporation.`
+        }
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;
+        padding:14px;margin-bottom:1.5rem;text-align:left">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);
+          text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">
+          ${isDup ? 'Existing' : 'Your'} Complaint ID
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:1.4rem;font-weight:500;
+          color:var(--green);letter-spacing:0.04em">${id}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">
+          📱 Use this ID + <strong style="color:var(--text)">${phone}</strong> to track status
+        </div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-green" style="flex:1" onclick="
+          document.getElementById('track-id').value='${id}';
+          document.getElementById('track-phone').value='${phone}';
+          document.getElementById('submit-modal').remove();
+          show('track'); trackComplaint();">
+          🔍 Track This Report
+        </button>
+        <button class="btn btn-ghost" style="flex:1" onclick="
+          document.getElementById('submit-modal').remove();
+          resetReportForm();">
+          ＋ New Report
+        </button>
+      </div>
+    </div>`;
+  modal.style.display = 'flex';
+}
+
+function resetReportForm() {
+  ['r-name','r-phone','r-address','r-ward','r-desc','r-lat','r-lng'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('r-state').value = '';
+  document.getElementById('r-city').innerHTML = '<option value="">Select city</option>';
+  document.getElementById('routing-info').style.display = 'none';
+  document.getElementById('photo-drop').style.display = 'block';
+  document.getElementById('photo-preview').style.display = 'none';
+  document.getElementById('loc-status').style.display = 'none';
+  document.getElementById('report-map').classList.remove('show');
+  document.querySelectorAll('.sev-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('.sev-btn.high').classList.add('active');
+  selectedSev = 'high';
+  show('report');
+}
+
+// ── TOAST ─────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 3500);
+}
+
+// ── TRACK ─────────────────────────────────────────────────────
+function loadDemoTrack() {
+  document.getElementById('track-id').value = 'SR-2025-00847';
+  document.getElementById('track-phone').value = '9876543210';
+  trackComplaint();
+}
+
+function trackComplaint() {
+  const id    = document.getElementById('track-id').value.trim().toUpperCase();
+  const phone = document.getElementById('track-phone').value.trim();
+  const el    = document.getElementById('track-result');
+
+  if (!id)    { el.style.display='block'; el.innerHTML=`<div style="color:var(--red);font-size:14px">⚠️ Please enter a Complaint ID.</div>`; return; }
+  if (!phone) { el.style.display='block'; el.innerHTML=`<div style="color:var(--red);font-size:14px">⚠️ Please enter your mobile number.</div>`; return; }
+
+  const c = complaints.find(x => x.id === id);
+  if (!c) {
+    el.style.display = 'block';
+    el.innerHTML = `<div style="color:var(--red);font-size:14px">❌ Complaint ID <strong>${id}</strong> not found. Please check and try again.</div>`;
+    return;
+  }
+
+  // Phone validation — demo complaints accept any phone; new ones check reporter phone
+  const validPhone = !c.phone || c.phone === phone ||
+    (phoneIndex[phone] && phoneIndex[phone].includes(id));
+  if (!validPhone) {
+    el.style.display = 'block';
+    el.innerHTML = `<div style="color:var(--red);font-size:14px">❌ Mobile number doesn't match this complaint. Please check and try again.</div>`;
+    return;
+  }
+
+  const allSteps = [
+    { key:'submitted', label:'Complaint Submitted',      desc:`Reported at ${c.address}, routed to ${c.corp}` },
+    { key:'verified',  label:'Verified by Corporation',  desc:'A sanitation officer confirmed the dump location' },
+    { key:'assigned',  label:'Cleanup Assigned',         desc:'Sanitation crew scheduled for cleanup' },
+    { key:'resolved',  label:'Resolved & Cleaned',       desc:'Dump cleared. Area has been cleaned up.' },
+  ];
+
+  const stepsHTML = allSteps.map((s, i) => {
+    const done     = c.steps.includes(s.key);
+    const isActive = !done && c.steps.length === i;
+    const cls  = done ? 'done' : isActive ? 'active' : 'todo';
+    const icon = done ? '✓' : isActive ? '⏳' : (i + 1);
+    return `<div class="track-step">
+      <div class="step-dot ${cls}">${icon}</div>
+      <div class="step-info">
+        <h4 style="color:${done?'var(--green)':isActive?'var(--amber)':'var(--muted)'}">${s.label}</h4>
+        <p>${s.desc}</p>
+      </div>
+    </div>`;
+  }).join('');
+
+  const isResolved = c.status === 'resolved';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="background:var(--surface2);border:1px solid ${isResolved?'var(--green)':'var(--border)'};
+      border-radius:10px;padding:1.25rem;margin-bottom:1rem">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <strong style="font-family:'IBM Plex Mono',monospace;font-size:13px">${c.id}</strong>
+        <span class="badge badge-${c.status}">${c.status}</span>
+        <span class="badge badge-${c.sev}">${c.sev} severity</span>
+        <span style="font-size:11px;color:var(--muted)">${c.time}</span>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:${isResolved?'10px':'0'}">
+        📍 ${c.address}, ${c.city} &nbsp;·&nbsp; Routed to: <strong style="color:var(--text)">${c.corp}</strong>
+        &nbsp;·&nbsp; <span style="color:var(--green)">👥 ${c.count} report${c.count!==1?'s':''}</span>
+      </div>
+      ${isResolved ? `<div style="background:var(--green-dim);border:1px solid var(--green);border-radius:8px;
+        padding:10px 14px;font-size:13px;color:var(--green);font-weight:700;margin-top:10px">
+        ✅ This dump has been cleaned and resolved. Thank you for reporting!
+      </div>` : ''}
+    </div>
+    ${stepsHTML}`;
+}
+
+// ── RENDER FEED ───────────────────────────────────────────────
+function sevColor(s) { return s==='high'?'var(--red)':s==='medium'?'var(--amber)':'var(--green)'; }
+
+function renderFeed() {
+  const el = document.getElementById('home-feed');
+  el.innerHTML = complaints.slice(0,4).map(c => `
+    <div class="complaint-card">
+      <div class="complaint-thumb">${c.sev==='high'?'🔴':c.sev==='medium'?'🟡':'🟢'}</div>
+      <div class="complaint-info">
+        <h4>${c.area}, ${c.city}</h4>
+        <p>${c.address}</p>
+        <div class="complaint-meta">
+          <span class="badge badge-${c.status}">${c.status}</span>
+          <span class="badge badge-${c.sev}">${c.sev}</span>
+          <span style="font-size:11px;color:var(--muted)">${c.time} · ${c.corp}</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function renderAllComplaints() {
+  const el = document.getElementById('all-complaints');
+  el.innerHTML = complaints.map(c => `
+    <div class="complaint-card" style="cursor:pointer" onclick="document.getElementById('track-id').value='${c.id}';show('track');trackComplaint()">
+      <div class="complaint-thumb">${c.sev==='high'?'🔴':c.sev==='medium'?'🟡':'🟢'}</div>
+      <div class="complaint-info">
+        <h4>${c.area} — <span style="font-family:'IBM Plex Mono',monospace;font-size:12px">${c.id}</span></h4>
+        <p>${c.address} · ${c.type}</p>
+        <div class="complaint-meta">
+          <span class="badge badge-${c.status}">${c.status}</span>
+          <span class="badge badge-${c.sev}">${c.sev}</span>
+          <span style="font-size:11px;color:var(--muted)">${c.time} · ${c.corp}</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ── OFFICER QUEUE ─────────────────────────────────────────────
+function renderOfficerQueue() {
+  const queue = complaints.filter(c => c.status !== 'resolved');
+  document.getElementById('officer-queue').innerHTML = queue.map(c => `
+    <div class="complaint-card">
+      <div class="complaint-thumb">${c.sev==='high'?'🔴':c.sev==='medium'?'🟡':'🟢'}</div>
+      <div class="complaint-info" style="flex:1">
+        <h4>${c.area} — <span style="font-family:'IBM Plex Mono',monospace;font-size:12px">${c.id}</span></h4>
+        <p>${c.address}</p>
+        <div class="complaint-meta">
+          <span class="badge badge-${c.status}">${c.status}</span>
+          <span class="badge badge-${c.sev}">${c.sev} severity</span>
+          <span style="font-size:11px;color:var(--muted)">${c.time}</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+        <button class="btn btn-green" style="padding:6px 14px;font-size:11px" onclick="resolveComplaint('${c.id}',this)">✓ Mark Resolved</button>
+        <button class="btn btn-ghost" style="padding:6px 14px;font-size:11px">📞 Call Reporter</button>
+      </div>
+    </div>`).join('') || '<p style="color:var(--muted);font-size:13px">No pending complaints. Great work!</p>';
+}
+
+function resolveComplaint(id, btn) {
+  const c = complaints.find(x => x.id === id);
+  if (!c) return;
+
+  // Full resolve — all steps done
+  c.status = 'resolved';
+  c.steps  = ['submitted', 'verified', 'assigned', 'resolved'];
+  c.resolvedTime = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ', ' +
+    new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short'});
+
+  // Animate card removal from officer queue
+  const card = btn?.closest('.complaint-card');
+  if (card) {
+    card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+    card.style.opacity = '0'; card.style.transform = 'translateX(30px)';
+    setTimeout(() => { renderOfficerQueue(); updateDashStats(); }, 420);
+  } else {
+    renderOfficerQueue(); updateDashStats();
+  }
+
+  // Remove from existing grid with animation
+  const excCard = document.getElementById('exc-' + id);
+  if (excCard) {
+    excCard.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    excCard.style.opacity = '0'; excCard.style.transform = 'scale(0.92)';
+    setTimeout(() => { excCard.remove(); }, 520);
+  }
+
+  // Refresh all other views
+  renderFeed(); renderAllComplaints();
+
+  // If track page is showing this complaint, refresh it
+  const trackId = document.getElementById('track-id').value.trim().toUpperCase();
+  if (trackId === id && document.getElementById('track-result').style.display !== 'none') {
+    trackComplaint();
+  }
+
+  showToast(`✅ Complaint ${id} resolved & removed from registry`);
+}
+
+function updateDashStats() {
+  const pending  = complaints.filter(c => c.status === 'pending').length;
+  const assigned = complaints.filter(c => c.status === 'assigned').length;
+  const resolved = complaints.filter(c => c.status === 'resolved').length;
+  const overdue  = complaints.filter(c => c.status === 'pending' && c.steps.length < 2).length;
+  const stats = document.querySelectorAll('.dash-stat .n');
+  if (stats[0]) stats[0].textContent = pending;
+  if (stats[1]) stats[1].textContent = assigned;
+  if (stats[2]) stats[2].textContent = resolved;
+  if (stats[3]) stats[3].textContent = overdue;
+}
+
+// ── HOTSPOTS ──────────────────────────────────────────────────
+function renderHotspots() {
+  const max = Math.max(...hotspots.map(h => h.count));
+  document.getElementById('hotspot-bars').innerHTML = hotspots.map(h => `
+    <div class="heat-row">
+      <span class="heat-name">${h.area}</span>
+      <div class="heat-bar-wrap"><div class="heat-bar" style="width:${(h.count/max)*100}%;background:${h.color}"></div></div>
+      <span class="heat-num">${h.count}</span>
+    </div>`).join('');
+}
+
+// ── CORPORATIONS ──────────────────────────────────────────────
+function renderCorps() {
+  document.getElementById('corps-list').innerHTML = corps.map(c => `
+    <div class="corp-card">
+      <div class="corp-info">
+        <h4>${c.name} <span style="font-size:11px;color:var(--muted);font-weight:400">— ${c.full}</span></h4>
+        <p>${c.city} &nbsp;·&nbsp; SLA: ${c.sla} response time</p>
+      </div>
+      <div class="corp-stats">
+        <div class="corp-stat"><div class="n" style="color:var(--amber)">${c.open}</div><div class="l">Open</div></div>
+        <div class="corp-stat"><div class="n">${c.resolved}</div><div class="l">Resolved</div></div>
+      </div>
+    </div>`).join('');
+}
+
+// ── EXISTING COMPLAINTS ───────────────────────────────────────
+function renderExisting() {
+  const el = document.getElementById('existing-grid');
+  const active = complaints.filter(c => c.status !== 'resolved');
+  if (active.length === 0) {
+    el.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:3rem;color:var(--muted);font-size:13px">
+      🎉 No active complaints right now. Streets are clean!
+    </div>`; return;
+  }
+  el.innerHTML = active.map((c, i) => {
+    const sevColor = c.sev==='high'?'var(--red)':c.sev==='medium'?'var(--amber)':'var(--green)';
+    const sevDim   = c.sev==='high'?'var(--red-dim)':c.sev==='medium'?'var(--amber-dim)':'var(--green-dim)';
+    const sevEmoji = c.sev==='high'?'🔴':c.sev==='medium'?'🟡':'🟢';
+    const priority = c.count >= 15 ? '🔥 HIGH PRIORITY' : c.count >= 8 ? '⚠️ ESCALATING' : '📋 LOGGED';
+    const priColor = c.count >= 15 ? 'var(--red)' : c.count >= 8 ? 'var(--amber)' : 'var(--muted)';
+    return `
+    <div class="exc-card" id="exc-${c.id}" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:0;overflow:hidden;display:flex;flex-direction:column;transition:border-color 0.2s">
+      <!-- TOP BAR -->
+      <div style="background:var(--surface2);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${c.id}</span>
+        <span class="badge badge-${c.status}">${c.status}</span>
+      </div>
+
+      <!-- BODY -->
+      <div style="padding:14px;flex:1">
+        <!-- AREA & ADDRESS -->
+        <div style="margin-bottom:10px">
+          <div style="font-family:'Syne',sans-serif;font-size:1rem;font-weight:700;margin-bottom:2px">${sevEmoji} ${c.area}, ${c.city}</div>
+          <div style="font-size:12px;color:var(--muted)">📍 ${c.address}</div>
+        </div>
+
+        <!-- ATTRIBUTES GRID -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+          <div style="background:var(--bg);border-radius:6px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-family:'IBM Plex Mono',monospace">Type</div>
+            <div style="font-size:12px;font-weight:600;margin-top:2px">${c.type}</div>
+          </div>
+          <div style="background:var(--bg);border-radius:6px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-family:'IBM Plex Mono',monospace">Severity</div>
+            <div style="font-size:12px;font-weight:700;margin-top:2px;color:${sevColor}">${c.sev.toUpperCase()}</div>
+          </div>
+          <div style="background:var(--bg);border-radius:6px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-family:'IBM Plex Mono',monospace">Corporation</div>
+            <div style="font-size:12px;font-weight:600;margin-top:2px">${c.corp}</div>
+          </div>
+          <div style="background:var(--bg);border-radius:6px;padding:8px 10px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;font-family:'IBM Plex Mono',monospace">Reported</div>
+            <div style="font-size:12px;font-weight:600;margin-top:2px">${c.time}</div>
+          </div>
+        </div>
+
+        <!-- PRIORITY TAG -->
+        <div style="font-size:11px;font-weight:700;color:${priColor};margin-bottom:10px;letter-spacing:0.04em">${priority}</div>
+      </div>
+
+      <!-- COUNTER FOOTER -->
+      <div style="border-top:1px solid var(--border);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;background:var(--surface2)">
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:2px">People who've seen this</div>
+          <div style="display:flex;align-items:baseline;gap:5px">
+            <span id="count-${c.id}" style="font-family:'IBM Plex Mono',monospace;font-size:1.6rem;font-weight:500;color:${sevColor};line-height:1">${c.count}</span>
+            <span style="font-size:11px;color:var(--muted)">reports</span>
+          </div>
+        </div>
+        <button
+          onclick="bumpCount('${c.id}')"
+          style="background:${sevDim};border:1.5px solid ${sevColor};color:${sevColor};font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;width:44px;height:44px;border-radius:50%;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;flex-shrink:0"
+          title="I've seen this dump too"
+          onmouseover="this.style.transform='scale(1.1)'"
+          onmouseout="this.style.transform='scale(1)'"
+        >＋</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function bumpCount(id) {
+  const c = complaints.find(x => x.id === id);
+  if (!c) return;
+  c.count++;
+  const el = document.getElementById('count-' + id);
+  if (el) {
+    el.textContent = c.count;
+    el.style.transform = 'scale(1.35)';
+    setTimeout(() => el.style.transform = 'scale(1)', 250);
+    el.style.transition = 'transform 0.2s ease';
+  }
+  // update priority tag if threshold crossed
+  if (c.count === 8 || c.count === 15) renderExisting();
+  showToast('👍 Thanks! Your report increases this complaint\'s priority.');
+}
+
+// ── LOCATION PICKER (REPORT) ──────────────────────────────────
+let reportMap = null, reportMarker = null;
+
+function setLocStatus(msg, isError) {
+  const el = document.getElementById('loc-status');
+  el.textContent = msg; el.style.display = 'block';
+  el.className = 'loc-status' + (isError ? ' error' : '');
+}
+
+function useGPS() {
+  setLocStatus('📡 Detecting your location…', false);
+  document.getElementById('btn-gps').classList.add('active');
+  document.getElementById('btn-map').classList.remove('active');
+  document.getElementById('btn-manual').classList.remove('active');
+  if (!navigator.geolocation) { setLocStatus('❌ Geolocation not supported by your browser.', true); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      document.getElementById('r-lat').value = lat;
+      document.getElementById('r-lng').value = lng;
+      setLocStatus(`✅ Location detected: ${lat.toFixed(5)}°N, ${lng.toFixed(5)}°E`, false);
+      // Reverse geocode with Nominatim
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+        .then(r => r.json()).then(d => {
+          const addr = d.display_name ? d.display_name.split(',').slice(0,3).join(',') : '';
+          if (addr) document.getElementById('r-address').value = addr;
+          const ward = d.address?.suburb || d.address?.neighbourhood || d.address?.city_district || '';
+          if (ward) document.getElementById('r-ward').value = ward;
+          const cityName = d.address?.city || d.address?.town || '';
+          autoSelectCity(cityName);
+        }).catch(() => {});
+    },
+    err => setLocStatus('❌ Could not get location. Please allow access or use map/manual.', true),
+    { timeout: 10000 }
+  );
+}
+
+function toggleMap() {
+  const mapEl = document.getElementById('report-map');
+  const isVisible = mapEl.classList.contains('show');
+  document.getElementById('btn-map').classList.toggle('active', !isVisible);
+  document.getElementById('btn-gps').classList.remove('active');
+  document.getElementById('btn-manual').classList.remove('active');
+  if (isVisible) { mapEl.classList.remove('show'); return; }
+  mapEl.classList.add('show');
+  if (!reportMap) {
+    // default center: Hyderabad
+    reportMap = L.map('report-map').setView([17.385, 78.487], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19
+    }).addTo(reportMap);
+    reportMap.on('click', e => {
+      const { lat, lng } = e.latlng;
+      if (reportMarker) reportMarker.setLatLng([lat, lng]);
+      else reportMarker = L.marker([lat, lng]).addTo(reportMap);
+      document.getElementById('r-lat').value = lat.toFixed(6);
+      document.getElementById('r-lng').value = lng.toFixed(6);
+      setLocStatus(`📍 Pin dropped: ${lat.toFixed(5)}°N, ${lng.toFixed(5)}°E — fill address below or we'll reverse-geocode.`, false);
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+        .then(r => r.json()).then(d => {
+          if (d.display_name) document.getElementById('r-address').value = d.display_name.split(',').slice(0,3).join(',');
+          const ward = d.address?.suburb || d.address?.neighbourhood || '';
+          if (ward) document.getElementById('r-ward').value = ward;
+          const cityName = d.address?.city || d.address?.town || '';
+          autoSelectCity(cityName);
+        }).catch(() => {});
+    });
+    // Try to center on user location
+    navigator.geolocation?.getCurrentPosition(p => {
+      reportMap.setView([p.coords.latitude, p.coords.longitude], 15);
+    });
+  }
+  setTimeout(() => reportMap.invalidateSize(), 200);
+  setLocStatus('🗺️ Click anywhere on the map to drop a pin at the dump location.', false);
+}
+
+function useManual() {
+  document.getElementById('btn-manual').classList.add('active');
+  document.getElementById('btn-gps').classList.remove('active');
+  document.getElementById('btn-map').classList.remove('active');
+  document.getElementById('report-map').classList.remove('show');
+  document.getElementById('loc-status').style.display = 'none';
+  document.getElementById('r-address').focus();
+}
+
+function autoSelectCity(cityName) {
+  const stateEl = document.getElementById('r-state');
+  const cityEl = document.getElementById('r-city');
+  for (const [state, cities] of Object.entries(cityMap)) {
+    const match = cities.find(c => cityName.toLowerCase().includes(c.toLowerCase()));
+    if (match) {
+      stateEl.value = state; updateCorp();
+      setTimeout(() => { cityEl.value = match; cityEl.dispatchEvent(new Event('change')); }, 100);
+      break;
+    }
+  }
+}
+
+// ── NEARBY COMPLAINTS (EXISTING) ─────────────────────────────
+let userLat = null, userLng = null;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// Approximate lat/lng for demo complaint areas (Hyderabad)
+const areaCoords = {
+  'Dilsukhnagar': [17.3686, 78.5247],
+  'Malakpet':     [17.3724, 78.5000],
+  'LB Nagar':     [17.3469, 78.5527],
+  'Kukatpally':   [17.4849, 78.3996],
+  'Uppal':        [17.4017, 78.5588],
+};
+
+function loadNearby() {
+  const btn = document.getElementById('btn-nearby');
+  btn.textContent = '📡 Detecting…'; btn.disabled = true;
+  if (!navigator.geolocation) {
+    showToast('❌ Geolocation not supported.'); btn.textContent = '📡 Detect My Location'; btn.disabled = false; return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      userLat = pos.coords.latitude; userLng = pos.coords.longitude;
+      btn.textContent = '✅ Location Found'; btn.disabled = false;
+      btn.style.background = '#16a34a';
+      document.getElementById('nearby-dist').textContent = `📍 Your location: ${userLat.toFixed(4)}°N, ${userLng.toFixed(4)}°E`;
+      document.getElementById('nearby-dist').classList.add('show');
+      applyNearbyFilter();
+    },
+    () => {
+      showToast('❌ Could not detect location. Please allow location access.');
+      btn.textContent = '📡 Detect My Location'; btn.disabled = false;
+    },
+    { timeout: 10000 }
+  );
+}
+
+function applyNearbyFilter() {
+  if (userLat === null) return;
+  const radiusKm = parseFloat(document.getElementById('nearby-radius').value);
+  const cards = document.querySelectorAll('#existing-grid > div[id^="exc-"]');
+  let nearbyCount = 0;
+  cards.forEach(card => {
+    const id = card.id.replace('exc-', '');
+    const c = complaints.find(x => x.id === id);
+    if (!c) return;
+    const coords = (c.lat && c.lng) ? [c.lat, c.lng] : areaCoords[c.area];
+    if (!coords) return;
+    const dist = haversineKm(userLat, userLng, coords[0], coords[1]);
+    c._dist = dist;
+    if (radiusKm === 0 || dist <= radiusKm) {
+      card.classList.remove('exc-card-far');
+      // inject distance badge into top bar
+      let distBadge = card.querySelector('.dist-badge');
+      if (!distBadge) {
+        distBadge = document.createElement('span');
+        distBadge.className = 'dist-badge badge';
+        distBadge.style.cssText = 'background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue)';
+        card.querySelector('div').appendChild(distBadge);
+      }
+      distBadge.textContent = dist < 1 ? `${(dist*1000).toFixed(0)}m away` : `${dist.toFixed(1)}km away`;
+      nearbyCount++;
+    } else {
+      card.classList.add('exc-card-far');
+    }
+  });
+  // Sort cards by distance
+  const grid = document.getElementById('existing-grid');
+  const sorted = [...grid.children].sort((a, b) => {
+    const ca = complaints.find(x => x.id === a.id?.replace('exc-', ''));
+    const cb = complaints.find(x => x.id === b.id?.replace('exc-', ''));
+    return ((ca?._dist ?? 999) - (cb?._dist ?? 999));
+  });
+  sorted.forEach(el => grid.appendChild(el));
+  // Update badge
+  const badge = document.getElementById('nearby-count-badge');
+  badge.style.display = 'block';
+  document.getElementById('nearby-count-text').textContent =
+    radiusKm === 0 ? `Showing all ${complaints.length} reports` : `${nearbyCount} report${nearbyCount!==1?'s':''} within ${radiusKm}km`;
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+renderFeed();
+renderAllComplaints();
+renderOfficerQueue();
+renderHotspots();
+renderCorps();
+renderExisting();
+</script>
+</div><!-- /#app-shell -->
+
+</body>
+</html>
