@@ -1034,74 +1034,7 @@ function setSev(btn, sev) {
 }
 
 // ── SUBMIT REPORT ─────────────────────────────────────────────
-function submitReport() {
-  const addr  = document.getElementById('r-address').value.trim();
-  const city  = document.getElementById('r-city').value;
-  const phone = document.getElementById('r-phone').value.trim();
-  const name  = document.getElementById('r-name').value.trim();
-  if (!addr || !city)  { showToast('⚠️ Please fill location and address'); return; }
-  if (!phone)          { showToast('⚠️ Please enter your mobile number'); return; }
-
-  const corp   = corpMap[city] || 'Local Municipal Corporation';
-  const area   = document.getElementById('r-ward').value.trim() || city;
-  const type   = document.getElementById('r-type').value;
-  const desc   = document.getElementById('r-desc')?.value.trim() || '';
-  const now    = new Date();
-  const timeStr = now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}) + ', ' + now.toLocaleDateString('en-IN',{day:'numeric',month:'short'});
-
-  // ── Duplicate detection: same area + address + type = bump existing ──
-  const normAddr = addr.toLowerCase().replace(/\s+/g,' ').trim();
-  const dup = complaints.find(c =>
-    c.status !== 'resolved' &&
-    c.area.toLowerCase() === area.toLowerCase() &&
-    c.city.toLowerCase() === city.toLowerCase() &&
-    c.type === type
-  );
-
-  if (dup) {
-    // Bump count on existing complaint
-    dup.count++;
-    dup.reporters = dup.reporters || [];
-    dup.reporters.push({ name, phone, time: timeStr });
-
-    // Register this phone → complaint ID mapping for tracking
-    phoneIndex[phone] = phoneIndex[phone] || [];
-    if (!phoneIndex[phone].includes(dup.id)) phoneIndex[phone].push(dup.id);
-
-    // Show success modal for duplicate
-    showSubmitSuccess(dup.id, phone, true, dup.count);
-    renderExisting(); renderFeed(); renderAllComplaints(); renderOfficerQueue();
-    return;
-  }
-
-  // ── New complaint ──
-  const seq  = String(complaints.length + 848).padStart(5,'0');
-  const newId = 'SR-2025-' + seq;
-
-  const newC = {
-    id: newId,
-    area, city, address: addr, type, sev: selectedSev,
-    status: 'pending',
-    corp: corp.split('(')[0].trim(),
-    time: timeStr,
-    steps: ['submitted'],
-    count: 1,
-    phone,                          // primary reporter phone
-    reporters: [{ name, phone, time: timeStr }],
-    desc,
-    lat: parseFloat(document.getElementById('r-lat').value) || null,
-    lng: parseFloat(document.getElementById('r-lng').value) || null,
-  };
-
-  complaints.unshift(newC);
-
-  // Register phone → id mapping
-  phoneIndex[phone] = phoneIndex[phone] || [];
-  phoneIndex[phone].push(newId);
-
-  showSubmitSuccess(newId, phone, false, 1);
-  renderExisting(); renderFeed(); renderAllComplaints(); renderOfficerQueue();
-}
+// Handled by Firebase module script below
 
 // ── SUCCESS MODAL ─────────────────────────────────────────────
 function showSubmitSuccess(id, phone, isDup, count) {
@@ -1278,6 +1211,7 @@ function renderFeed() {
       </div>
     </div>`).join('');
 }
+window.renderFeed = renderFeed;
 
 function renderAllComplaints() {
   const el = document.getElementById('all-complaints');
@@ -1295,6 +1229,7 @@ function renderAllComplaints() {
       </div>
     </div>`).join('');
 }
+window.renderAllComplaints = renderAllComplaints;
 
 // ── OFFICER QUEUE ─────────────────────────────────────────────
 function renderOfficerQueue() {
@@ -1317,8 +1252,23 @@ function renderOfficerQueue() {
       </div>
     </div>`).join('') || '<p style="color:var(--muted);font-size:13px">No pending complaints. Great work!</p>';
 }
+window.renderOfficerQueue = renderOfficerQueue;
+
 
 function resolveComplaint(id, btn) {
+  const card = btn?.closest(".complaint-card");
+  if (card) { card.style.transition = "opacity 0.4s ease, transform 0.4s ease"; card.style.opacity = "0"; card.style.transform = "translateX(30px)"; }
+  const excCard = document.getElementById("exc-" + id);
+  if (excCard) { excCard.style.transition = "opacity 0.5s ease, transform 0.5s ease"; excCard.style.opacity = "0"; excCard.style.transform = "scale(0.92)"; setTimeout(() => { excCard.remove(); }, 520); }
+  window._resolveInFirestore(id).then(() => {
+    showToast("✅ Complaint " + id + " marked resolved in database");
+  }).catch(e => {
+    showToast("❌ Failed to update database: " + e.message);
+    if (card) { card.style.opacity = "1"; card.style.transform = "none"; }
+  });
+}
+window.resolveComplaint = resolveComplaint;
+function resolveComplaint_OLD(id, btn) {
   const c = complaints.find(x => x.id === id);
   if (!c) return;
 
@@ -1471,6 +1421,7 @@ function renderExisting() {
     </div>`;
   }).join('');
 }
+window.renderExisting = renderExisting;
 
 function bumpCount(id) {
   const c = complaints.find(x => x.id === id);
@@ -1680,6 +1631,105 @@ renderCorps();
 renderExisting();
 </script>
 </div><!-- /#app-shell -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, onSnapshot, query, orderBy }
+    from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL }
+    from "https://www.gstatic.com/firebasejs/11.0.0/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCapMdcCAF5Ubg5MlylnsSWD7wMB7dqyWM",
+    authDomain: "swachh-report.firebaseapp.com",
+    projectId: "swachh-report",
+    storageBucket: "swachh-report.firebasestorage.app",
+    messagingSenderId: "18849140028",
+    appId: "1:18849140028:web:b044c0a9d21daa983be239"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getFirestore(app);
+  const storage = getStorage(app);
+
+  // ── SUBMIT REPORT (Firebase version) ────────────────────────
+  async function submitReport() {
+    const addr  = document.getElementById('r-address').value.trim();
+    const city  = document.getElementById('r-city').value;
+    const phone = document.getElementById('r-phone').value.trim();
+    const name  = document.getElementById('r-name').value.trim();
+    if (!addr || !city) { showToast('⚠️ Please fill location and address'); return; }
+    if (!phone)         { showToast('⚠️ Please enter your mobile number'); return; }
+
+    const corp  = corpMap[city] || 'Local Municipal Corporation';
+    const area  = document.getElementById('r-ward').value.trim() || city;
+    const type  = document.getElementById('r-type').value;
+    const desc  = document.getElementById('r-desc')?.value.trim() || '';
+    const now   = new Date();
+
+    // Photo upload to Firebase Storage
+    const photoFile = document.getElementById('photo-input')?.files[0];
+    let photoURL = '';
+    if (photoFile) {
+      try {
+        const storageRef = ref(storage, `photos/${Date.now()}_${photoFile.name}`);
+        await uploadBytes(storageRef, photoFile);
+        photoURL = await getDownloadURL(storageRef);
+      } catch(e) { console.warn('Photo upload failed:', e); }
+    }
+
+    const newC = {
+      area, city, address: addr, type, sev: selectedSev,
+      status: 'pending',
+      corp: corp.split('(')[0].trim(),
+      time: now.toISOString(),
+      steps: ['submitted'],
+      count: 1,
+      phone,
+      reporters: [{ name, phone, time: now.toISOString() }],
+      desc, photoURL,
+      lat: parseFloat(document.getElementById('r-lat').value) || null,
+      lng: parseFloat(document.getElementById('r-lng').value) || null,
+      createdAt: now
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, 'complaints'), newC);
+      showSubmitSuccess(docRef.id, phone, false, 1);
+      renderExisting(); renderFeed(); renderAllComplaints(); renderOfficerQueue();
+    } catch(e) {
+      showToast('❌ Failed to save complaint. Check console for details.');
+      console.error('Firestore error:', e);
+    }
+  }
+  window.submitReport = submitReport;
+
+  // ── RESOLVE COMPLAINT IN FIRESTORE ─────────────────────────
+  async function _resolveInFirestore(id) {
+    const { doc, updateDoc } = await import("https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js");
+    const now = new Date();
+    await updateDoc(doc(db, "complaints", id), {
+      status: "resolved",
+      steps: ["submitted", "verified", "assigned", "resolved"],
+      resolvedAt: now
+    });
+  }
+  window._resolveInFirestore = _resolveInFirestore;
+
+  // ── LIVE LISTENER ────────────────────────────────────────────
+  onSnapshot(
+    query(collection(db, 'complaints'), orderBy('createdAt', 'desc')),
+    (snapshot) => {
+      complaints.length = 0;
+      snapshot.docs.forEach(d => complaints.push({ id: d.id, ...d.data() }));
+      renderFeed();
+      renderExisting();
+      renderAllComplaints();
+      renderOfficerQueue();
+    },
+    (err) => console.error('Firestore listener error:', err)
+  );
+</script>
+
 
 </body>
 </html>
